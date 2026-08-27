@@ -292,9 +292,44 @@ if ($userPath -notlike "*$binDir*") {
     $newPath = if ($userPath) { "$userPath;$binDir" } else { $binDir }
     [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
     $env:Path = "$env:Path;$binDir"
-    Write-Ok "Added NightChat to your PATH (new PowerShell windows will see the 'nightchat' command)."
+    Write-Ok "Added NightChat to your PATH."
 } else {
     Write-Ok "NightChat already on PATH."
+}
+
+# [Environment]::SetEnvironmentVariable(...,"User") only writes the
+# registry (HKCU\Environment)  -  it does NOT tell already-running
+# processes about it. Explorer.exe (and anything it spawns: Start Menu
+# entries, taskbar shortcuts, right-click "Open in Terminal") caches its
+# own environment block and keeps using the STALE one until either the
+# user logs off/on, or something broadcasts WM_SETTINGCHANGE. Without
+# this broadcast, a "brand new" PowerShell window opened right after
+# install can still fail with "'nightchat' is not recognized", because
+# it inherited Explorer's unrefreshed environment  -  not because the
+# registry write above failed. This is a well-known Windows installer
+# gotcha, not specific to PowerShell 5.1 vs 7.
+try {
+    $broadcastSig = @"
+using System;
+using System.Runtime.InteropServices;
+public static class NightChatEnvBroadcast {
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessageTimeout(
+        IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam,
+        uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+}
+"@
+    Add-Type -TypeDefinition $broadcastSig -ErrorAction SilentlyContinue
+    $HWND_BROADCAST = [IntPtr]0xffff
+    $WM_SETTINGCHANGE = 0x1A
+    $SMTO_ABORTIFHUNG = 0x2
+    $result = [UIntPtr]::Zero
+    [NightChatEnvBroadcast]::SendMessageTimeout(
+        $HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero, "Environment",
+        $SMTO_ABORTIFHUNG, 5000, [ref]$result) | Out-Null
+} catch {
+    Write-Warn2 "Could not broadcast the PATH change to other processes (non-fatal)."
+    Write-Host "      If 'nightchat' isn't found in a new window, log off and back on once." -ForegroundColor DarkGray
 }
 
 if ($RelayUrl) {
