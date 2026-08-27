@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -34,6 +35,35 @@ def _identity_dir() -> Path:
     return Path.home() / ".nightchat"
 
 
+def _remove_program_dir(path: Path) -> tuple[bool, str]:
+    """
+    No Windows, este processo Python está RODANDO a partir de dentro de
+    `path` (o venv) — arquivos nativos como `_rust.pyd` ficam com lock
+    enquanto o interpretador está de pé, então apagar `path`
+    sincronamente sempre falha aqui (e uma remoção parcial confunde até
+    o cmd.exe, que perde a própria noção de working directory). A saída
+    padrão do Windows para "instalador se autodeleta" é: agendar a
+    remoção num processo separado e destacado, que espera este processo
+    terminar e só então apaga a pasta inteira.
+    """
+    if os.name != "nt":
+        try:
+            shutil.rmtree(path)
+            return True, ""
+        except OSError as e:
+            return False, str(e)
+
+    try:
+        subprocess.Popen(
+            ["cmd", "/c", f'timeout /t 2 /nobreak >nul & rmdir /s /q "{path}"'],
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            close_fds=True,
+        )
+        return True, "deferred"
+    except OSError as e:
+        return False, str(e)
+
+
 def run() -> int:
     print()
     print("NightChat — Uninstall")
@@ -44,11 +74,15 @@ def run() -> int:
 
     if program_dir is not None and program_dir.exists():
         print(f"  [*] Removing program files: {program_dir}")
-        try:
-            shutil.rmtree(program_dir)
+        ok, detail = _remove_program_dir(program_dir)
+        if ok and detail == "deferred":
+            print("  [+] Program files will finish removing in a couple seconds")
+            print("      (scheduled after this process exits — Windows won't let a")
+            print("      running Python delete the very venv it's running from).")
+        elif ok:
             print("  [+] Program files removed.")
-        except OSError as e:
-            print(f"  [!] Failed to remove program files: {e}")
+        else:
+            print(f"  [!] Failed to remove program files: {detail}")
     else:
         print("  [i] No installed program directory found (nothing to remove there).")
 
