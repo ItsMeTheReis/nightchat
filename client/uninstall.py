@@ -21,6 +21,8 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 
@@ -45,6 +47,11 @@ def _remove_program_dir(path: Path) -> tuple[bool, str]:
     padrão do Windows para "instalador se autodeleta" é: agendar a
     remoção num processo separado e destacado, que espera este processo
     terminar e só então apaga a pasta inteira.
+
+    Escrevemos um .bat temporário em vez de tentar montar uma linha de
+    comando composta (com `&`, redirecionamento e aspas aninhadas) — o
+    quoting de argumentos do Windows para processos filhos não preserva
+    isso de forma confiável, e um .bat evita o problema por completo.
     """
     if os.name != "nt":
         try:
@@ -54,9 +61,21 @@ def _remove_program_dir(path: Path) -> tuple[bool, str]:
             return False, str(e)
 
     try:
+        fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="nightchat_uninstall_")
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            f.write("@echo off\r\n")
+            f.write(":wait\r\n")
+            f.write(f'rmdir /s /q "{path}" 2>nul\r\n')
+            f.write(f'if exist "{path}" (\r\n')
+            f.write("    timeout /t 1 /nobreak >nul\r\n")
+            f.write("    goto wait\r\n")
+            f.write(")\r\n")
+            f.write(f'del /f /q "{bat_path}"\r\n')
+
         subprocess.Popen(
-            ["cmd", "/c", f'timeout /t 2 /nobreak >nul & rmdir /s /q "{path}"'],
+            ["cmd", "/c", "start", "/min", "", bat_path],
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            cwd=tempfile.gettempdir(),  # nunca dentro de `path` — evita o mesmo problema que estamos corrigindo
             close_fds=True,
         )
         return True, "deferred"
