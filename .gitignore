@@ -1,0 +1,55 @@
+# --- Secrets / configuração local (NUNCA versionar) ---
+.env
+.env.*
+!.env.example
+
+# --- Identidade criptográfica / dados locais de usuário ---
+# (não deveriam nunca estar dentro do repo, mas por segurança)
+*.key
+*.pem
+identity_*.json
+ed25519_*.key
+.nightchat/
+
+# --- Banco de dados local (dev) ---
+*.db
+*.sqlite
+*.sqlite3
+nightchat.db
+test_nightchat.db
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.Python
+*.so
+
+# --- Ambientes virtuais ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Testes / caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# --- Empacotamento (Fase 8 / instalador local) ---
+build/*
+!build/.gitkeep
+dist/
+*.spec
+
+# --- Editor / SO ---
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
