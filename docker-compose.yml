@@ -1,0 +1,75 @@
+# NightChat Relay — orquestração de produção (relay + PostgreSQL + proxy
+# reverso com TLS automático via Caddy).
+#
+# NÃO SOBE SOZINHO: precisa de um arquivo .env ao lado (copie de
+# .env.example) com JWT_SECRET/POSTGRES_PASSWORD reais, e do domínio em
+# deploy/Caddyfile apontando de fato (DNS) para o host onde isto roda.
+# Ver docs/DEPLOYMENT.md para o que falta além disto (VPS, DNS, firewall).
+#
+# Uso:
+#   cp .env.example .env   # e edite JWT_SECRET, POSTGRES_PASSWORD, etc.
+#   docker compose up -d
+#   docker compose logs -f relay
+
+services:
+  relay:
+    build: .
+    restart: unless-stopped
+    environment:
+      NIGHTCHAT_ENV: production
+      NIGHTCHAT_REQUIRE_TLS: "true"
+      NIGHTCHAT_HOST: 0.0.0.0
+      NIGHTCHAT_PORT: 8000
+      NIGHTCHAT_LOG_LEVEL: ${NIGHTCHAT_LOG_LEVEL:-INFO}
+      DATABASE_URL: postgresql+psycopg://nightchat:${POSTGRES_PASSWORD}@postgres:5432/nightchat
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-900}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      DB_POOL_TIMEOUT_SECONDS: ${DB_POOL_TIMEOUT_SECONDS:-30}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Sem portas publicadas diretamente: só o Caddy fala com o mundo
+    # externo. O relay só é alcançável de dentro da rede docker interna.
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nightchat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: nightchat
+    volumes:
+      - nightchat_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nightchat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Sem porta publicada no host — só o container `relay` acessa o Postgres.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - nightchat_caddy_data:/data
+      - nightchat_caddy_config:/config
+    depends_on:
+      - relay
+
+volumes:
+  nightchat_pgdata:
+  nightchat_caddy_data:
+  nightchat_caddy_config:

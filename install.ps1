@@ -46,8 +46,10 @@ param(
     [string]$Branch = "main",
 
     # Public relay address for the client to use. If not given, the
-    # installed client defaults to ws://localhost:8000 (only useful if
-    # you're also running a relay on the same machine  -  see README.md).
+    # installed client defaults to the official NightChat relay
+    # (wss://relay.nightchat.dev)  -  see README.md. Only pass this if you
+    # want to point at a different relay, e.g. one running on your own
+    # machine for local development.
     [string]$RelayUrl,
 
     # Skip auto-starting NightChat at the end (useful for unattended/CI
@@ -300,9 +302,9 @@ if ($RelayUrl) {
     $env:NIGHTCHAT_RELAY_URL = $RelayUrl
     Write-Ok "Relay configured: $RelayUrl"
 } else {
-    Write-Warn2 "No relay configured  -  defaulting to ws://localhost:8000 (only useful with a relay on this same machine)."
-    Write-Host "      To talk to someone on another computer, set NIGHTCHAT_RELAY_URL to a relay reachable from both," -ForegroundColor DarkGray
-    Write-Host "      e.g.: [Environment]::SetEnvironmentVariable('NIGHTCHAT_RELAY_URL','https://your-relay.example.com','User')" -ForegroundColor DarkGray
+    Write-Ok "No relay override set  -  will use the official NightChat relay (wss://relay.nightchat.dev)."
+    Write-Host "      To point at a different relay (e.g. one on your own machine for local dev), set NIGHTCHAT_RELAY_URL," -ForegroundColor DarkGray
+    Write-Host "      e.g.: [Environment]::SetEnvironmentVariable('NIGHTCHAT_RELAY_URL','http://localhost:8000','User')" -ForegroundColor DarkGray
 }
 
 Write-Host ""

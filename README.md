@@ -332,23 +332,36 @@ de TLS (`https://` / `wss://`) — `ws://` puro é só para dev local.
 ### 3. Subir os clientes
 
 Em dois terminais separados (na mesma máquina ou em máquinas diferentes,
-desde que apontem para o mesmo relay):
+desde que apontem para o mesmo relay). Uma instalação/execução nova **não
+tem username padrão** — o cliente sempre pergunta, sem sugerir nada:
 
 ```bash
 # Terminal 1
-python -m client.main
-# Username [morningstar]:  (Enter para aceitar o padrão)
-# Password: ********
+NIGHTCHAT_RELAY_URL=http://localhost:8000 python -m client.main
+# Username: morningstar
+# [No account "morningstar" exists on this relay yet. Create a new account?]
+# Set password for morningstar: ********
+# Confirm password: ********
 
 # Terminal 2
-python -m client.main
-# Username [morningstar]: sofia
-# Password: ********
+NIGHTCHAT_RELAY_URL=http://localhost:8000 python -m client.main
+# Username: sofia
+# Set password for sofia: ********
+# Confirm password: ********
 ```
 
 Na primeira vez que um username loga, o relay não o conhece: o cliente
-pede para você **definir** uma senha e registra a conta (Argon2id no
-servidor). Nas vezes seguintes, ele pede a senha para autenticar.
+mostra a tela de onboarding ("NO IDENTITY FOUND"), pede para você
+**definir** uma senha e registra a conta (Argon2id no servidor). Nas
+vezes seguintes, ele pede a senha para autenticar. Se o relay estiver
+fora do ar, o cliente mostra um erro claro (endereço do relay + causas
+prováveis) com a opção de tentar de novo — nunca um "conectando..."
+silencioso que nunca termina.
+
+Para conveniência de desenvolvimento/teste, defina
+`NIGHTCHAT_USERNAME=devtester` no ambiente para que o prompt **sugira**
+esse valor (Enter aceita) — isso nunca é definido pelo instalador nem por
+uma instalação real.
 
 Dentro do shell (`NightChat>`):
 
@@ -372,9 +385,11 @@ ver "Chat E2EE (Fase 5)" acima); refaça `connect to user` depois de
 
 ### Testando em duas máquinas diferentes
 
-Se `morningstar` e `sofia` estiverem em computadores diferentes, os dois
-precisam apontar para o **mesmo** relay publicamente alcançável (não
-`localhost`):
+Se `morningstar` e `sofia` estiverem em computadores diferentes, eles já
+apontam por padrão para o **mesmo** relay: o relay oficial da release
+(ver "Relay oficial" abaixo) — não é preciso configurar nada. Para
+apontar para outro relay (ex.: um seu, ou um local para dev), defina
+`NIGHTCHAT_RELAY_URL` em cada máquina:
 
 ```powershell
 # em cada máquina, antes de abrir o NightChat:
@@ -386,6 +401,40 @@ seção "Instalação" abaixo.) A partir daí, `/users`, `connect to user`,
 `accept` e `chat` funcionam exatamente igual, não importa se os dois
 clientes estão na mesma rede ou em continentes diferentes — o relay é
 quem os conecta.
+
+## Relay oficial
+
+O cliente já vem, por padrão (sem nenhuma variável de ambiente
+definida), configurado para usar o relay oficial da release:
+`https://relay.nightchat.dev` (`wss://relay.nightchat.dev/ws` para o
+WebSocket) — ver `client/authentication.py:OFFICIAL_RELAY_HTTP`. Isso é
+o padrão de **produção**; nunca `localhost`.
+
+**Honestidade sobre o relay oficial:** este domínio é o padrão já
+codificado no cliente, mas colocá-lo de fato no ar depende de
+infraestrutura real (VPS + DNS + TLS) que não existe dentro deste
+repositório nem foi provisionada neste ambiente de desenvolvimento — ver
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) para exatamente o que falta e
+os passos para trazê-lo ao ar. Enquanto ele não estiver no ar, um
+cliente sem `NIGHTCHAT_RELAY_URL` configurado mostra um erro claro
+("Unable to connect to NightChat Relay", com o endereço e causas
+prováveis) em vez de travar silenciosamente — nunca finja estar
+conectado quando não está.
+
+Para desenvolvimento ou para rodar seu próprio relay, aponte
+explicitamente para ele com `NIGHTCHAT_RELAY_URL` (ver seções acima) —
+essa variável sempre tem prioridade sobre o padrão oficial.
+
+## Produção / Deployment
+
+Subir um relay de verdade (PostgreSQL + HTTPS/WSS, sem `--reload`) tem
+[`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml) e
+[`deploy/Caddyfile`](deploy/Caddyfile) prontos no repositório — mas
+"pronto no repositório" não é o mesmo que "no ar": ainda falta um
+host real, um domínio apontando para ele e segredos gerados. O passo a
+passo completo, incluindo o que é responsabilidade de quem hospeda (VPS,
+DNS, firewall) versus o que já está pronto aqui, está em
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Instalação (Windows)
 
@@ -445,12 +494,15 @@ irreversível.
   release assinado). Isso é uma limitação real, documentada aqui, não
   escondida atrás de uma mensagem de "[+] Verified" que não significa
   nada.
-- **Não existe relay público oficial do NightChat.** O instalador não
-  aponta para nenhum servidor compartilhado por padrão — você (ou quem
-  quer que rode o relay) precisa hospedar um em algum lugar alcançável
-  pelas duas pontas e configurar `NIGHTCHAT_RELAY_URL`. Sem isso, dois
-  computadores diferentes não conseguem se falar (só `localhost`
-  funciona, e só se o relay também rodar na mesma máquina).
+- **O relay oficial (`relay.nightchat.dev`) ainda não está no ar.** O
+  cliente já vem configurado, por padrão, para usá-lo (nunca
+  `localhost`) — mas a infraestrutura real (VPS, DNS, TLS) que o
+  colocaria no ar não existe ainda; ver "Relay oficial" acima e
+  [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) para o que falta. Até lá,
+  instalar o NightChat sem um relay próprio mostra um erro claro ao
+  tentar conectar, em vez de travar silenciosamente. Para testar entre
+  duas máquinas hoje, hospede seu próprio relay (`docker compose up -d`
+  — ver `docs/DEPLOYMENT.md`) e passe `-RelayUrl` na instalação.
 - **Testado nesta sessão de desenvolvimento em uma máquina Windows real**
   (baixando o zip publicado no GitHub, criando o venv, instalando
   dependências, criando o shim e rodando `nightchat` de um PowerShell
@@ -616,8 +668,10 @@ congelada. Resumo do que mudou/existe hoje:
   a filosofia do projeto, não uma limitação técnica a resolver.
 - **Sem release assinado/checksum publicado** para o `install.ps1`
   verificar — ver seção "Instalação" acima.
-- **Sem relay público oficial** — cada implantação precisa hospedar o
-  seu próprio relay em algum lugar alcançável pelas duas pontas.
+- **O relay oficial ainda não está no ar** — o cliente já aponta para
+  `relay.nightchat.dev` por padrão, mas a infraestrutura real (VPS, DNS,
+  TLS) falta ser provisionada; ver [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+  Até lá, quem quiser testar precisa hospedar seu próprio relay.
 
 ## O que ainda falta (próximos passos honestos)
 
@@ -650,8 +704,11 @@ NightChat/
 │                     #   identidade (identity.py, Fase 3), do handshake (handshake.py, Fase 4)
 │                     #   e das mensagens cifradas (messaging.py, Fase 5) — wire.py é utilitário comum
 ├── tests/           # testes (rodam sem terminal interativo)
-├── docs/            # ARCHITECTURE.md — arquitetura, threat model, protocolo
+├── docs/            # ARCHITECTURE.md (arquitetura/protocolo) + DEPLOYMENT.md (relay em produção)
+├── deploy/          # Caddyfile — reverse proxy / TLS automático (ver docs/DEPLOYMENT.md)
 ├── install.ps1      # instalador Windows (irm ... | iex) — Fase 5
+├── Dockerfile        # imagem de produção do relay (server/ + shared/)
+├── docker-compose.yml # orquestração relay + PostgreSQL + Caddy — ver docs/DEPLOYMENT.md
 ├── requirements.txt # dependências comentadas por fase
 ├── .env.example     # configuração por ambiente (secrets fora do código)
 └── build/           # reservado para empacotamento binário futuro (não usado — ver "Instalação")

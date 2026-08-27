@@ -325,4 +325,6 @@ não uma mudança estrutural. Ver [`README.md`](../README.md), seção
 "O que ainda falta", para a lista honesta do que ficaria para uma
 iteração futura, e "Limitações conhecidas" para o que já existe mas tem
 limites reais documentados (single-process, sem backend de identidade
-para Linux/macOS, sem release assinado, sem relay público oficial).
+para Linux/macOS, sem release assinado, relay oficial
+(`relay.nightchat.dev`) ainda não provisionado — Dockerfile/compose já
+prontos, ver [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) para o que falta).

@@ -1,0 +1,15 @@
+# Reverse proxy do NightChat Relay — TLS automático (Let's Encrypt) via
+# Caddy. Termina HTTPS/WSS aqui e repassa texto puro para o container
+# `relay` na rede docker interna, incluindo X-Forwarded-Proto (Caddy faz
+# isso por padrão), que o relay usa para saber que a conexão original
+# era mesmo HTTPS/WSS (ver NIGHTCHAT_REQUIRE_TLS em server/config.py e
+# _is_secure() em server/relay.py).
+#
+# SUBSTITUA "relay.nightchat.dev" pelo domínio real depois que ele
+# existir e estiver apontando (registro DNS tipo A/AAAA) para o IP deste
+# host — ver docs/DEPLOYMENT.md. Sem isso, o Caddy não consegue emitir
+# certificado nenhum e este arquivo, sozinho, não coloca nada no ar.
+
+relay.nightchat.dev {
+	reverse_proxy relay:8000
+}

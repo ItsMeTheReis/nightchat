@@ -14,6 +14,15 @@ primeiro uso) sua identidade criptográfica Ed25519 local
 pública correspondente — nunca a privada, que não sai desta máquina.
 
 A UI de senha continua mascarada (mostra '*'), como na Fase 1.
+
+IDENTIDADE PADRÃO (revisão pós-release): uma instalação nova NÃO tem
+username padrão. `NIGHTCHAT_USERNAME` continua existindo só como uma
+conveniência OPCIONAL de desenvolvimento/teste (sugere um valor no
+prompt, mas não é obrigatório nem é definido pelo instalador) — sem essa
+variável, o prompt não sugere nada e exige que o usuário digite um
+username de verdade. "morningstar"/"sofia" nunca são um fallback
+automático aqui; eles só aparecem em testes, fixtures e exemplos de
+documentação.
 """
 
 from __future__ import annotations
@@ -33,6 +42,18 @@ if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shared import identity as shared_identity
 
+# Relay oficial da release (ver docs/DEPLOYMENT.md). NÃO ESTÁ NO AR ainda
+# nesta versão — não há VPS/domínio provisionado neste ambiente de
+# desenvolvimento (ver docs/DEPLOYMENT.md, seção "O que falta"). Está
+# aqui como o padrão de PRODUÇÃO (nunca localhost — ver auditoria
+# multi-máquina) para que o comportamento do cliente já seja o correto
+# assim que a infraestrutura real existir. Até lá, tentar conectar sem
+# configurar NIGHTCHAT_RELAY_URL vai falhar com uma mensagem clara
+# (ver _ensure_relay_reachable), não travar silenciosamente.
+OFFICIAL_RELAY_HTTP = "https://relay.nightchat.dev"
+OFFICIAL_RELAY_WS = "wss://relay.nightchat.dev/ws"
+
+
 def _relay_bases() -> tuple[str, str]:
     """
     O cliente só precisa saber UM endereço público do relay
@@ -41,6 +62,11 @@ def _relay_bases() -> tuple[str, str]:
     NIGHTCHAT_RELAY_HTTP/NIGHTCHAT_RELAY_WS continuam funcionando como
     override explícito (ex.: para apontar HTTP e WS a hosts diferentes
     atrás de um proxy) e têm prioridade se definidos.
+
+    Sem NENHUMA variável definida, o padrão é o relay OFICIAL da release
+    (`OFFICIAL_RELAY_HTTP`/`OFFICIAL_RELAY_WS`) — nunca localhost. Para
+    desenvolvimento local, defina NIGHTCHAT_RELAY_URL=http://localhost:8000
+    explicitamente.
     """
     relay_url = os.getenv("NIGHTCHAT_RELAY_URL")
     if relay_url:
@@ -52,14 +78,16 @@ def _relay_bases() -> tuple[str, str]:
         else:
             default_http, default_ws = f"http://{relay_url}", f"ws://{relay_url}/ws"
     else:
-        default_http, default_ws = "http://localhost:8000", "ws://localhost:8000/ws"
+        default_http, default_ws = OFFICIAL_RELAY_HTTP, OFFICIAL_RELAY_WS
 
     http_base = os.getenv("NIGHTCHAT_RELAY_HTTP", default_http)
     ws_base = os.getenv("NIGHTCHAT_RELAY_WS", default_ws)
     return http_base, ws_base
 
 
-DEFAULT_USERNAME = os.getenv("NIGHTCHAT_USERNAME", "morningstar")
+# Conveniência OPCIONAL de dev/teste — nunca definida pelo instalador,
+# nunca um valor "de fábrica". Ver docstring do módulo.
+DEFAULT_USERNAME = os.getenv("NIGHTCHAT_USERNAME") or None
 DEFAULT_HTTP_BASE, DEFAULT_WS_BASE = _relay_bases()
 
 MAX_ATTEMPTS = 3
@@ -67,15 +95,31 @@ MIN_PASSWORD_LEN = 6
 
 
 def _ask_username() -> str:
-    term.line()
-    raw = input(term.color(f"Username [{DEFAULT_USERNAME}]: ", C.WHITE))
-    return raw.strip() or DEFAULT_USERNAME
+    """
+    Pede o username. Só sugere um valor padrão se o desenvolvedor
+    explicitamente definiu NIGHTCHAT_USERNAME no ambiente — numa
+    instalação real isso nunca está definido, então o prompt fica
+    "Username: " puro e exige uma resposta não-vazia.
+    """
+    while True:
+        term.line()
+        if DEFAULT_USERNAME:
+            raw = input(term.color(f"Username [{DEFAULT_USERNAME}]: ", C.WHITE))
+            candidate = raw.strip() or DEFAULT_USERNAME
+        else:
+            raw = input(term.color("Username: ", C.WHITE))
+            candidate = raw.strip()
+        if candidate:
+            return candidate
+        term.line("  [!] Username não pode ficar em branco.", C.RED)
 
 
 def _register_flow(client: RelayClient, username: str) -> ident.Identity | None:
     term.line()
-    term.line(f'  Nenhuma conta "{username}" encontrada no relay. Criando conta.', C.YELLOW)
-    term.line("  Defina uma senha para esta identidade.", C.GREY)
+    term.boxed_title("NO IDENTITY FOUND", 46)
+    term.line()
+    term.line(f'  No account "{username}" exists on this relay yet.', C.YELLOW)
+    term.line("  Create a new account?", C.WHITE)
     term.line()
     for _ in range(MAX_ATTEMPTS):
         pw1 = term.masked_input(f"  Set password for {username}: ")
@@ -91,7 +135,7 @@ def _register_flow(client: RelayClient, username: str) -> ident.Identity | None:
             term.line(f"  [!] Falha ao registrar no relay: {err}", C.RED)
             return None
         term.line()
-        term.line("  [+] Conta criada no relay.", C.GREEN, C.BOLD)
+        term.line("  [+] Account created successfully.", C.GREEN, C.BOLD)
         identity_id = ident.get_or_create_identity_id(username)
         return ident.Identity(username=username, identity_id=identity_id)
     term.line("  [!] Não foi possível configurar a conta.", C.RED)
@@ -184,16 +228,17 @@ def _load_and_publish_identity(client: RelayClient, username: str) -> cryptoid.C
 def login(username: str | None = None) -> tuple[ident.Identity, RelayClient, cryptoid.CryptographicIdentity] | None:
     """Ponto de entrada de autenticação. Retorna (Identity, RelayClient
     conectado, CryptographicIdentity) ou None."""
+    if not _ensure_relay_reachable():
+        term.line()
+        term.line("  [i] Cannot continue without a relay connection.", C.GREY)
+        return None
+
     chosen = username or _ask_username()
 
     client = RelayClient(http_base=DEFAULT_HTTP_BASE, ws_base=DEFAULT_WS_BASE, username=chosen)
 
     term.line()
-    term.line(f"  [*] Conectando ao relay ({DEFAULT_HTTP_BASE}) ...", C.GREY, C.DIM)
-    if not client.exists(chosen) and not _relay_reachable(client):
-        term.line(f"  [!] Não foi possível alcançar o relay em {DEFAULT_HTTP_BASE}.", C.RED)
-        term.line("      Suba o servidor primeiro: uvicorn server.main:app", C.GREY, C.DIM)
-        return None
+    term.line(f"  [*] Connecting to relay ({DEFAULT_HTTP_BASE}) ...", C.GREY, C.DIM)
 
     if client.exists(chosen):
         identity = _login_flow(client, chosen)
@@ -212,16 +257,50 @@ def login(username: str | None = None) -> tuple[ident.Identity, RelayClient, cry
         term.line(f"  [!] Falha ao abrir conexão WebSocket com o relay: {err}", C.RED)
         return None
 
+    term.line()
+    term.line("  [+] Connected to relay.", C.GREEN, C.BOLD)
+    term.line("  [+] Online.", C.GREEN, C.BOLD)
+
     return identity, client, crypto_identity
 
 
-def _relay_reachable(client: RelayClient) -> bool:
-    # client.exists() já faz uma chamada HTTP real; se o relay estiver fora
-    # do ar, ela retorna False silenciosamente (status 0). Distinguimos
-    # "usuário não existe" de "relay fora do ar" tentando de novo e olhando
-    # o resultado bruto seria mais preciso, mas para o propósito desta fase
-    # (mensagem de erro amigável) uma nova tentativa com /health basta.
+def _check_relay_health() -> bool:
     from .relay_client import _http_get  # import tardio: função utilitária interna
 
-    status, _ = _http_get(f"{client.http_base}/health")
+    status, _ = _http_get(f"{DEFAULT_HTTP_BASE}/health")
     return status == 200
+
+
+def _prompt_relay_unreachable() -> bool:
+    """
+    Mostra um erro claro (item 15 da auditoria multi-máquina) — não um
+    'OFFLINE' silencioso — e pergunta se o usuário quer tentar de novo.
+    Retorna True se deve tentar de novo, False se deve desistir.
+    """
+    term.line()
+    term.line("  [!] Unable to connect to NightChat Relay.", C.RED, C.BOLD)
+    term.line()
+    term.line(f"      Relay: {DEFAULT_HTTP_BASE}", C.GREY)
+    term.line()
+    term.line("      Possible causes:", C.GREY)
+    term.line("        - Internet unavailable", C.GREY, C.DIM)
+    term.line("        - Relay unavailable", C.GREY, C.DIM)
+    term.line("        - Invalid relay configuration (NIGHTCHAT_RELAY_URL)", C.GREY, C.DIM)
+    term.line()
+    try:
+        answer = input(term.color("      Retry? [Y/n]: ", C.WHITE)).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        term.line()
+        answer = "n"
+    return answer in ("", "y", "yes")
+
+
+def _ensure_relay_reachable() -> bool:
+    """Confere o relay ANTES de pedir username/senha — não faz sentido
+    coletar credenciais só para descobrir depois que o relay está fora
+    do ar. Faz o operador decidir explicitamente entre tentar de novo ou
+    desistir, em vez de travar silenciosamente."""
+    while not _check_relay_health():
+        if not _prompt_relay_unreachable():
+            return False
+    return True

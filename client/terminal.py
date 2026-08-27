@@ -185,16 +185,22 @@ def _progress_bar(width_chars: int = 30, duration: float = 0.9) -> None:
 
 
 def boot_sequence() -> None:
-    """Sequência de inicialização progressiva — a assinatura do NightChat."""
+    """
+    Sequência de inicialização progressiva — a assinatura do NightChat.
+
+    Cobre só etapas LOCAIS (nenhuma delas depende do relay) — a conexão
+    de rede de verdade acontece depois, em client/authentication.py, que
+    reporta o status real (conectado, ou um erro claro se não conseguir).
+    Esta sequência já teve "Connecting to relay [ .. ] (offline mode)"
+    fixo aqui, sempre, mesmo com o relay disponível — uma mentira visual
+    corrigida na revisão multi-máquina: nunca afirme algo sobre a rede
+    antes de realmente tentar.
+    """
     line()
     _boot_step("Initializing NightChat", 0.4)
     _boot_step("Loading core modules", 0.3)
-    _boot_step("Loading local identity", 0.35)
     _boot_step("Initializing secure subsystem", 0.45)
     _boot_step("Preparing cryptographic providers", 0.4)
-    _boot_step("Connecting to relay", 0.5, ok=False)
-    line("      " + "(offline mode — Phase 1: local only)", C.GREY, C.DIM)
-    _boot_step("Synchronizing presence", 0.3, ok=False)
     line()
     _progress_bar(30, 0.8)
     line()
