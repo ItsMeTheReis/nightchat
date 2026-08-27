@@ -73,7 +73,7 @@ def _remove_program_dir(path: Path) -> tuple[bool, str]:
             f.write(f'del /f /q "{bat_path}"\r\n')
 
         subprocess.Popen(
-            ["cmd", "/c", "start", "/min", "", bat_path],
+            ["cmd", "/c", bat_path],
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
             cwd=tempfile.gettempdir(),  # nunca dentro de `path` — evita o mesmo problema que estamos corrigindo
             close_fds=True,
